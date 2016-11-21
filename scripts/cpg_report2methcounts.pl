@@ -119,6 +119,8 @@ print        "$outfile\n";
 
 cpg_report2methcounts.pl - DESCRIPTION 
 
+perl cpg_report2methcounts.pl -i SAMPLE.CpG_report.txt.gz
+
 =head1 SYNOPSIS
 
 Give standard usage here
