@@ -16,22 +16,25 @@ my $tag = 'methcounts';
 my $mem = '1G';
 my $format = 'bed';
 my $gzip = "$ENV{HOME}/htslib/bin/bgzip";
+my $merge_strands;
 
 GetOptions(
-           'i|input|inputfile:s'  => \$inputfile,
-           'suffix:s'             => \$suffix,
-           'tag:s'                => \$tag,
-           'mem:s'                => \$mem,
-           'gzip|bgzip:s'         => \$gzip,
-           'format:s'             => \$format,
-           'debug'                => \$debug,
-           'verbose'              => \$verbose,
-           'simulate'             => \$simulate,
+           'i|input|inputfile:s'   => \$inputfile,
+           'suffix:s'              => \$suffix,
+           'tag:s'                 => \$tag,
+           'mem:s'                 => \$mem,
+           'gzip|bgzip:s'          => \$gzip,
+           'format:s'              => \$format,
+           'm|merge|merge_strands' => \$merge_strands,
+           'debug'                 => \$debug,
+           'verbose'               => \$verbose,
+           'simulate'              => \$simulate,
           );
 
 $mem .= 'G' if ($mem !~ /G|K$/);
 
 my ($name,$path,$this_suffix) = fileparse($inputfile,$suffix);
+$tag .= ".mstr" if ($merge_strands);
 $tag .= ".bed" if ($format =~ /bed/);
 my $outfile = "$path/$name.$tag.gz";
 $cmd = "gunzip -c $inputfile";
@@ -40,6 +43,8 @@ my $sort_opt = "sort -k 1,1 -k2,2n --buffer-size=$buffer_size --temporary-direct
 open(my $out_fh, "|-", "$sort_opt | $gzip -c > $outfile") or die $!;
 print STDERR "$cmd | cpg_report2methcounts-transformation | $sort_opt\n";
 open IN, "$cmd | " or die $!;
+my ($prev_chromosome, $prev_start, $prev_position, $prev_strand, $prev_count_methylated, $prev_count_non_methylated, $prev_C_context, $prev_context, $prev_trinucleotide_context, $prev_total_reads, $count_methylated, $count_non_methylated, $prev_methlevel);
+my $count = 0;
 while (<IN>) {
   my $line = $_; chomp $line;
   my ($chromosome, $position, $strand, $count_methylated, $count_non_methylated, $C_context, $trinucleotide_context) = split("\t", $line);
@@ -48,9 +53,47 @@ while (<IN>) {
   my $context = 'CpG';
   $context = 'CHH' if ($C_context eq 'CHH');
   $context = 'CHG' if ($C_context eq 'CHG');
-  print $out_fh "$chromosome\t$position\t$strand\t$context\t$methlevel\t$total_reads\n"  if ($format =~ /methcounts/);
+
+  # print $out_fh "$chromosome\t$position\t$strand\t$context\t$methlevel\t$total_reads\n"  if ($format =~ /methcounts/);
   my $start = $position - 1;
-  print $out_fh "$chromosome\t$start\t$position\t$context:$total_reads\t$methlevel\t$strand\n" if ($format =~ /bed/);
+  if ($merge_strands) {
+    if (defined $prev_chromosome &&
+	defined $prev_position &&
+	defined $prev_strand &&
+	defined $prev_C_context &&
+	($prev_chromosome eq $chromosome) &&
+	($prev_position == $position-1) &&
+	($prev_strand eq '+') &&
+	($strand      eq '-') &&
+	($prev_strand ne $strand) &&
+	($prev_C_context eq $C_context)
+       ) {
+      my $merged_total_reads          = $total_reads          + $prev_total_reads;
+      my $merged_count_methylated     = $count_methylated     + $prev_count_methylated;
+      my $merged_count_non_methylated = $count_non_methylated + $prev_count_non_methylated;
+      my $merged_methlevel = 0;
+      $merged_methlevel    = $merged_count_methylated/($merged_total_reads) if ($merged_count_methylated > 0);
+      print $out_fh "$prev_chromosome\t$prev_start\t$prev_position\t$prev_context:$merged_total_reads\t$merged_methlevel\t$prev_strand\n" if ($format =~ /bed/);
+    } else {
+      # First strand count capture, nothing to be printed
+    }
+  } else {
+    print $out_fh "$chromosome\t$start\t$position\t$context:$total_reads\t$methlevel\t$strand\n" if ($format =~ /bed/);
+  }
+  $prev_chromosome             = $chromosome;
+  $prev_start                  = $start;
+  $prev_position               = $position;
+  $prev_strand                 = $strand;
+  $prev_count_methylated       = $count_methylated;
+  $prev_count_non_methylated   = $count_non_methylated;
+  $prev_C_context              = $C_context;
+  $prev_context                = $context;
+  $prev_trinucleotide_context  = $trinucleotide_context;
+  $prev_total_reads            = $total_reads;
+  $prev_count_methylated       = $count_methylated;
+  $prev_count_non_methylated   = $count_non_methylated;
+  $prev_methlevel              = $methlevel;
+  $count++;
 }
 close $out_fh;
 
@@ -128,15 +171,16 @@ Give standard usage here
 =head1 DESCRIPTION
 
 GetOptions(
-           'i|input|inputfile:s'  => \$inputfile,
-           'suffix:s'             => \$suffix,
-           'tag:s'                => \$tag,
-           'mem:s'                => \$mem,
-           'gzip|bgzip:s'         => \$gzip,
-           'format:s'             => \$format,
-           'debug'                => \$debug,
-           'verbose'              => \$verbose,
-           'simulate'             => \$simulate,
+           'i|input|inputfile:s'   => \$inputfile,
+           'suffix:s'              => \$suffix,
+           'tag:s'                 => \$tag,
+           'mem:s'                 => \$mem,
+           'gzip|bgzip:s'          => \$gzip,
+           'format:s'              => \$format,
+           'm|merge|merge_strands' => \$merge_strands,
+           'debug'                 => \$debug,
+           'verbose'               => \$verbose,
+           'simulate'              => \$simulate,
           );
 
 =head1 AUTHOR - Albert Vilella
